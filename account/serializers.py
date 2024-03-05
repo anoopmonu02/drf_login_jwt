@@ -4,6 +4,8 @@ from django.utils.encoding import smart_str, force_bytes, DjangoUnicodeDecodeErr
 from django.utils.http import urlsafe_base64_encode, urlsafe_base64_decode
 from django.contrib.auth.tokens import PasswordResetTokenGenerator
 
+from account.utils import Util
+
 
 class UserSerializer(serializers.ModelSerializer):
     class Meta:
@@ -76,8 +78,35 @@ class SendPasswordResetEmailSerializer(serializers.Serializer):
             link = 'http://localhost:3000/api/users/password-reset/' + uid + '/' + token
             print('Password reset link: ', link)
             #send email
+            data = {
+                'subject': 'Password Reset Request',
+                'body': f'Hi {user.first_name}, Click the link below to reset your password \n\n{link}',
+                'to': [user.email]
+            }
+            Util.send_email(data)
             return attrs
         else:
             raise serializers.ValidationError({'email': 'User with this email does not exist.'})    
-        return super().validate(attrs)
+        return attrs
 
+class UserPasswordResetSereializer(serializers.Serializer):
+    password = serializers.CharField(required=True)
+    class Meta:
+        fields = ['password']
+    def validate(self, attrs):
+        try:
+            password = attrs.get('password')
+            uid = self.context.get('uid')
+            token = self.context.get('token')
+            id = smart_str(urlsafe_base64_decode(force_bytes(uid)))
+
+            user = MyCustomUser.objects.get(id=id)
+            if not PasswordResetTokenGenerator().check_token(user, token):
+                raise serializers.ValidationError({'token': 'Token is not valid or expired.'})
+            user.set_password(password)
+            user.save()
+            return attrs
+        except DjangoUnicodeDecodeError as identifier:
+            PasswordResetTokenGenerator().check_token(user, token)
+            raise serializers.ValidationError({'token': 'Token is not valid or expired.'})
+        
